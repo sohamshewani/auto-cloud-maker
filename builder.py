@@ -16,13 +16,6 @@ CATEGORIES = [
 
 LANGUAGES = ["Python", "Shell", "C", "C++", "Java"]
 
-# Fallback sequence in case Groq deprecates an ID
-MODELS = [
-    "llama-3.3-70b-specdec",
-    "mixtral-8x7b-32768",
-    "gemma2-9b-it"
-]
-
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 GH_USER = os.environ.get("GITHUB_ACTOR", "sohamshewani")
 
@@ -30,27 +23,29 @@ def run(cmd, cwd=None):
     res = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True, text=True)
     return res.returncode == 0, res.stdout, res.stderr
 
-def request_llm(prompt: str):
-    last_err = None
-    for model_name in MODELS:
-        try:
-            print(f"📡 Querying Groq with model [{model_name}]...")
-            completion = client.chat.completions.create(
-                messages=[{"role": "user", "content": prompt}],
-                model=model_name,
-                response_format={"type": "json_object"}
-            )
-            return completion.choices[0].message.content
-        except Exception as err:
-            print(f"⚠️ Model [{model_name}] failed: {err}. Trying fallback...")
-            last_err = err
-    raise last_err
+def get_live_model():
+    """Dynamically queries Groq API to pick an active text/chat model."""
+    try:
+        models_data = client.models.list()
+        # Find active models that aren't whisper/audio/vision-only
+        available = [
+            m.id for m in models_data.data 
+            if m.active and not any(k in m.id for k in ["whisper", "vision", "guard"])
+        ]
+        if available:
+            print(f"📡 Discovered active Groq models: {available[:3]}")
+            return available[0]
+    except Exception as e:
+        print(f"⚠️ Dynamic discovery failed: {e}")
+    # Generic fallback
+    return "llama-3.1-8b-instant"
 
 def build_project():
     category = random.choice(CATEGORIES)
     language = random.choice(LANGUAGES)
+    active_model = get_live_model()
 
-    print(f"🚀 Designing [{language}] project for [{category['name']}]...")
+    print(f"🚀 Designing [{language}] project for [{category['name']}] using [{active_model}]...")
 
     prompt = f"""
     You are an expert software engineer. Create a complete, lightweight, practical utility project in {language}.
@@ -67,8 +62,13 @@ def build_project():
     Do not wrap output in markdown code blocks.
     """
 
-    content = request_llm(prompt)
-    data = json.loads(content)
+    chat_completion = client.chat.completions.create(
+        messages=[{"role": "user", "content": prompt}],
+        model=active_model,
+        response_format={"type": "json_object"}
+    )
+
+    data = json.loads(chat_completion.choices[0].message.content)
     base_name = data.get("repo_name", f"tool-{int(time.time())}")
     description = data.get("description", f"Utility written in {language}")
 
