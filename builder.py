@@ -16,12 +16,35 @@ CATEGORIES = [
 
 LANGUAGES = ["Python", "Shell", "C", "C++", "Java"]
 
+# Fallback sequence in case Groq deprecates an ID
+MODELS = [
+    "llama-3.3-70b-specdec",
+    "mixtral-8x7b-32768",
+    "gemma2-9b-it"
+]
+
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 GH_USER = os.environ.get("GITHUB_ACTOR", "sohamshewani")
 
 def run(cmd, cwd=None):
     res = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True, text=True)
     return res.returncode == 0, res.stdout, res.stderr
+
+def request_llm(prompt: str):
+    last_err = None
+    for model_name in MODELS:
+        try:
+            print(f"📡 Querying Groq with model [{model_name}]...")
+            completion = client.chat.completions.create(
+                messages=[{"role": "user", "content": prompt}],
+                model=model_name,
+                response_format={"type": "json_object"}
+            )
+            return completion.choices[0].message.content
+        except Exception as err:
+            print(f"⚠️ Model [{model_name}] failed: {err}. Trying fallback...")
+            last_err = err
+    raise last_err
 
 def build_project():
     category = random.choice(CATEGORIES)
@@ -44,14 +67,8 @@ def build_project():
     Do not wrap output in markdown code blocks.
     """
 
-    chat_completion = client.chat.completions.create(
-        messages=[{"role": "user", "content": prompt}],
-        model="llama-3.1-8b-instant",
-
-        response_format={"type": "json_object"}
-    )
-
-    data = json.loads(chat_completion.choices[0].message.content)
+    content = request_llm(prompt)
+    data = json.loads(content)
     base_name = data.get("repo_name", f"tool-{int(time.time())}")
     description = data.get("description", f"Utility written in {language}")
 
