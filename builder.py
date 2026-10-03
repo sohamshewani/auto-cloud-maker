@@ -40,17 +40,13 @@ DOMAIN_CHALLENGES = [
 
 client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 GH_USER = os.environ.get("GITHUB_ACTOR", "sohamshewani")
-
-# Dynamic fallback list to survive 503 High Demand spikes
-# Verified active models on your Google AI Studio account
 MODELS = ["gemini-3.8-flash", "gemini-3.5-flash-lite"]
-
 
 def run(cmd, cwd=None):
     res = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True, text=True)
     return res.returncode == 0, res.stdout, res.stderr
 
-def ask_gemini(prompt: str, json_mode: bool = False, max_tokens: int = 5000) -> str:
+def ask_gemini(prompt: str, json_mode: bool = False, max_tokens: int = 4000) -> str:
     config = types.GenerateContentConfig(
         max_output_tokens=max_tokens,
         temperature=0.2
@@ -71,16 +67,78 @@ def ask_gemini(prompt: str, json_mode: bool = False, max_tokens: int = 5000) -> 
                     return response.text
             except Exception as e:
                 err_str = str(e)
-                print(f"⚠️ [{model_name}] attempt {attempt + 1} notice: {err_str}")
-                # If 503 server overloaded or 429 rate limit, back off before next attempt
+                print(f"⚠️ [{model_name}] notice: {err_str}")
                 if "503" in err_str or "429" in err_str:
                     wait_time = (attempt + 1) * 12
                     print(f"⏳ Spike detected on [{model_name}]. Sleeping {wait_time}s...")
                     time.sleep(wait_time)
                 else:
-                    break  # If model not found or invalid argument, try next fallback model immediately
+                    break
+    raise RuntimeError("All configured Gemini models failed. Retrying next cycle.")
 
-    raise RuntimeError("All configured Gemini models experienced high demand. Exiting for next cron cycle.")
+def clean_code(raw_text: str) -> str:
+    cleaned = re.sub(r"^```[a-zA-Z0-9_\+\-]*\n", "", raw_text.strip())
+    cleaned = re.sub(r"\n```$", "", cleaned.strip())
+    return cleaned
+
+def stage_1_spec(topic: str, language: str) -> dict:
+    print(f"\n[Stage 1/4: Systems Research] 🔬 Specifying architecture for: '{topic}' ({language})...")
+    prompt = f"""
+    You are a Principal Systems Architect. Design a production-grade, deep engineering system in {language} for: '{topic}'.
+    Demand high rigor: clean separation of concerns, modular directory hierarchy (src/, include/, tests/), 
+    and complete defensive programming.
+    Return ONLY a single valid JSON object:
+    {{
+      "repo_name": "kebab-case-project-name",
+      "description": "Professional 1-sentence technical GitHub summary mentioning {language}",
+      "architecture_summary": "Exhaustive technical description of data structures, concurrency model, and data flow",
+      "core_files": ["include/engine.hpp", "src/engine.cpp", "src/main.cpp"]
+    }}
+    Do NOT output markdown code fences outside JSON.
+    """
+    raw = ask_gemini(prompt, json_mode=True, max_tokens=1000)
+    return json.loads(raw)
+
+def stage_2_generate_file(fpath: str, spec: dict, language: str) -> str:
+    print(f"⚙️️ Generating core file: [{fpath}]...")
+    prompt = f"""
+    You are a Staff Systems Engineer. Write complete, production-grade source code for '{fpath}' in {language}.
+    Project: '{spec['repo_name']}'
+    Architecture: {spec['architecture_summary']}
+    Provide compilable code with complete imports/includes and robust error handling. Do NOT abbreviate or truncate.
+    Output ONLY the raw code for this file. Do NOT wrap in JSON.
+    """
+    raw = ask_gemini(prompt, json_mode=False, max_tokens=3500)
+    return clean_code(raw)
+
+def stage_3_harness(spec: dict, language: str) -> tuple[str, str, str, str]:
+    print(f"\n[Stage 3/4: Verification & Harness] 🧪 Engineering build harness and tests...")
+    b_name = "Makefile" if language in ["C", "C++"] else ("pom.xml" if language == "Java" else "requirements.txt")
+    b_prompt = f"Write a complete, valid {b_name} to build and test '{spec['repo_name']}' in {language}. Output ONLY raw file content."
+    b_code = clean_code(ask_gemini(b_prompt, json_mode=False, max_tokens=1500))
+
+    t_name = "tests/test_main.cpp" if language == "C++" else ("tests/test_main.c" if language == "C" else "tests/test_core.py")
+    t_prompt = f"Write a complete unit and integration test suite in {language} for '{spec['repo_name']}'. Test invariants and edge cases. Output ONLY raw code."
+    t_code = clean_code(ask_gemini(t_prompt, json_mode=False, max_tokens=2500))
+
+    return b_name, b_code, t_name, t_code
+
+def stage_4_docs(spec: dict, files: list, language: str) -> str:
+    print(f"\n[Stage 4/4: Documentation] 📚 Publishing exhaustive architecture specification & docs...")
+    repo_name = spec['repo_name']
+    prompt = f"""
+    Write an exhaustive, enterprise-grade README.md for '{repo_name}' in {language}.
+    Files included: {files}
+    Structure:
+    - Badges (use https://img.shields.io/badge/License-MIT-yellow.svg and https://img.shields.io/github/stars/{GH_USER}/{repo_name}?style=flat)
+    - Architecture & Problem Statement
+    - ASCII Architecture / Dataflow Diagram
+    - Algorithmic Decisions & Concurrency Invariants
+    - Build, Compilation & Test Execution Recipes
+    Output ONLY raw Markdown.
+    """
+    raw = ask_gemini(prompt, json_mode=False, max_tokens=3000)
+    return clean_code(raw)
 
 def execute_deep_build():
     category = random.choice(DOMAIN_CHALLENGES)
@@ -88,49 +146,41 @@ def execute_deep_build():
     language = random.choice(LANGUAGES)
 
     print("=" * 70)
-    print(f"🚀 INITIATING DEEP CLOUD PIPELINE: [{language}]")
+    print(f"🚀 INITIATING MODULAR CLOUD ENGINEERING CYCLE: [{language}]")
     print(f"🎯 Domain: {category['domain']}")
     print(f"🎯 Objective: {topic}")
     print("=" * 70)
 
-    # Stage 1: Architecture Specification & Manifest
-    print("\n[Stage 1/4: Systems Research] 🔬 Generating architecture specification...")
-    spec_prompt = f"""
-    You are a Principal Systems Architect. Design an enterprise-grade, production-quality system in {language} for: '{topic}'.
-    Demand senior-level engineering rigor: clean separation of concerns, modular directory hierarchy (src/, include/, tests/), 
-    and complete defensive programming.
-    Return ONLY a single valid JSON object:
-    {{
-      "repo_name": "kebab-case-project-name",
-      "description": "Professional 1-sentence technical GitHub summary mentioning {language}",
-      "architecture_summary": "Exhaustive technical description of data structures, concurrency model, and data flow",
-      "files": {{
-        "relative/path/to/file": "full complete compilable code..."
-      }},
-      "readme": "# Markdown Documentation"
-    }}
-    CRITICAL: Write COMPLETE, UNTRUNCATED, compilable source files. Include build automation (Makefile, pom.xml, or requirements.txt), 
-    modular core engines, comprehensive unit/integration test suites, and an exhaustive README with ASCII architecture diagrams.
-    """
+    # Stage 1: Spec
+    spec = stage_1_spec(topic, language)
 
-    raw_output = ask_gemini(spec_prompt, json_mode=True, max_tokens=8000)
-    data = json.loads(raw_output)
+    # Stage 2: Individual File Generations (guaranteed zero JSON string truncation)
+    files_dict = {}
+    for fpath in spec.get("core_files", [])[:3]:
+        files_dict[fpath] = stage_2_generate_file(fpath, spec, language)
 
-    base_name = data.get("repo_name", f"{language.lower()}-engine-{int(time.time())}")
-    description = data.get("description", f"Enterprise {language} systems engine")
+    # Stage 3: Harness & Tests
+    b_name, b_code, t_name, t_code = stage_3_harness(spec, language)
+    files_dict[b_name] = b_code
+    files_dict[t_name] = t_code
+
+    # Stage 4: Documentation
+    readme_content = stage_4_docs(spec, list(files_dict.keys()), language)
+
+    # Scaffold local repository
+    base_name = spec.get("repo_name", f"{language.lower()}-engine-{int(time.time())}")
+    description = spec.get("description", f"Enterprise {language} systems engine")
     work_dir = Path(f"/tmp/{base_name}")
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    # Stage 2 & 3: File Deployment
-    print(f"\n[Stage 2 & 3: Implementation & Harness] 📦 Writing complete file tree for {base_name}...")
-    for rel_path, code in data.get("files", {}).items():
+    for rel_path, code in files_dict.items():
         dest = work_dir / rel_path
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(code, encoding="utf-8")
         if dest.suffix in [".sh", ".py"]:
             dest.chmod(0o755)
 
-    (work_dir / "README.md").write_text(data.get("readme", f"# {base_name}"), encoding="utf-8")
+    (work_dir / "README.md").write_text(readme_content, encoding="utf-8")
     (work_dir / ".gitignore").write_text("*.o\n*.a\n*.out\n*.class\ntarget/\nbuild/\nbin/\nvenv/\n__pycache__/\n.DS_Store\n", encoding="utf-8")
 
     # Native CI/CD Workflow
@@ -141,8 +191,6 @@ def execute_deep_build():
         encoding="utf-8"
     )
 
-    # Stage 4: Cloud Publishing
-    print("\n[Stage 4/4: Cloud Publishing] 🚀 Pushing production repository to GitHub...")
     run("git init", cwd=work_dir)
     run(f"git config user.name '{GH_USER}'", cwd=work_dir)
     run(f"git config user.email '{GH_USER}@users.noreply.github.com'", cwd=work_dir)
@@ -171,3 +219,4 @@ def execute_deep_build():
 
 if __name__ == "__main__":
     execute_deep_build()
+
