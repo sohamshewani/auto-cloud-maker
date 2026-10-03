@@ -2,12 +2,14 @@ name: Cloud Autonomous Maker
 
 on:
   schedule:
-    - cron: '17 */2 * * *'
+    # Triggers every 2 hours: ~65-75 min deep build followed by a ~45 min break
+    - cron: '0 */2 * * *'
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v4
