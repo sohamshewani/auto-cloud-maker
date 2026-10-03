@@ -42,7 +42,9 @@ client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 GH_USER = os.environ.get("GITHUB_ACTOR", "sohamshewani")
 
 # Dynamic fallback list to survive 503 High Demand spikes
-MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.5-flash-lite"]
+# Verified active models on your Google AI Studio account
+MODELS = ["gemini-3.8-flash", "gemini-3.5-flash-lite"]
+
 
 def run(cmd, cwd=None):
     res = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True, text=True)
