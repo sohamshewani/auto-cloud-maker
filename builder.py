@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 from groq import Groq
 
-LANGUAGES = ["Java", "C++", "C", "Python", "Shell"]
+LANGUAGES = ["Python", "C", "C++", "Java", "Shell"]
 
 DOMAIN_CHALLENGES = [
     {
@@ -40,17 +40,17 @@ DOMAIN_CHALLENGES = [
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 GH_USER = os.environ.get("GITHUB_ACTOR", "sohamshewani")
 
-# Priority fallback sequence: High intelligence first, high TPM backup second
-MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+# Active production models on free tier
+MODELS = ["qwen/qwen3.8-27b", "allam-2-7b"]
 
 def run(cmd, cwd=None):
     res = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True, text=True)
     return res.returncode == 0, res.stdout, res.stderr
 
-def ask_groq(prompt: str, json_mode: bool = True, max_tokens: int = 1800) -> str:
-    """Robust API invoker with exponential backoff and automatic model fallback."""
+def ask_groq(prompt: str, json_mode: bool = True, max_tokens: int = 900) -> str:
+    """Robust API invoker tailored for free-tier token windows."""
     for model in MODELS:
-        for attempt in range(5):
+        for attempt in range(4):
             try:
                 kwargs = {
                     "messages": [{"role": "user", "content": prompt}],
@@ -65,21 +65,20 @@ def ask_groq(prompt: str, json_mode: bool = True, max_tokens: int = 1800) -> str
             except Exception as e:
                 err_str = str(e)
                 if "429" in err_str:
-                    # Look for recommended retry interval, default to exponential backoff
                     wait_match = re.search(r"try again in ([\d\.]+)s", err_str)
                     sleep_time = float(wait_match.group(1)) + 2.0 if wait_match else (15 * (attempt + 1))
-                    print(f"⏳ Rate limit on [{model}]. Backing off {sleep_time:.1f}s (attempt {attempt+1}/5)...")
+                    print(f"⏳ Rate limit reached on [{model}]. Pausing {sleep_time:.1f}s...")
                     time.sleep(sleep_time)
                 else:
-                    print(f"⚠️ Error with [{model}]: {e}. Switching fallback model...")
+                    print(f"⚠️️ Model [{model}] notice: {e}. Trying fallback...")
                     break
-    raise RuntimeError("All LLM endpoints and retries exhausted.")
+    raise RuntimeError("All available model endpoints exhausted.")
 
 def stage_1_systems_research(topic: str, language: str) -> dict:
     print(f"\n[Stage 1/4: Systems Research] 🔬 Specifying architecture for: '{topic}' ({language})...")
     prompt = f"""
     You are a Principal Software Architect. Design a production-grade, deep engineering system in {language} for: '{topic}'.
-    Demand high rigor: modular packages, zero toy shortcuts, clear separation of concerns, and clean interfaces.
+    Demand high rigor: clean separation of concerns, modular interfaces, and zero toy shortcuts.
     Return ONLY a valid JSON object:
     {{
       "repo_name": "kebab-case-system-name",
@@ -87,50 +86,47 @@ def stage_1_systems_research(topic: str, language: str) -> dict:
       "architecture_summary": "Deep architectural explanation of data flow, memory model, and concurrency",
       "file_manifest": ["src/...", "include/...", "Makefile or pom.xml or requirements.txt"]
     }}
-    Do not output markdown backticks outside JSON.
+    Do not output markdown code blocks outside JSON.
     """
-    return json.loads(ask_groq(prompt, json_mode=True, max_tokens=1000))
+    return json.loads(ask_groq(prompt, json_mode=True, max_tokens=700))
 
 def stage_2_core_implementation(spec: dict, language: str) -> dict:
-    print(f"[Stage 2/4: Core Implementation] ⚙️️ Building core modules and libraries...")
-    # Buffer between API stages to keep tokens-per-minute low
-    time.sleep(5)
+    print(f"[Stage 2/4: Core Implementation] ⚙️ Building core modules and libraries...")
+    time.sleep(8)
     prompt = f"""
-    You are the Lead Systems Engineer. Implement the core modules for '{spec['repo_name']}' in {language}.
+    You are the Lead Systems Engineer. Implement the primary modular code for '{spec['repo_name']}' in {language}.
     Spec: {spec['architecture_summary']}
-    Required files: {spec['file_manifest']}
-    Write real, production-quality implementation files. Provide clean separation of concerns and robust error handling.
+    Write real, production-quality implementation files with clean error handling.
     Return ONLY a single valid JSON dictionary where keys are relative file paths and values are complete code strings:
     {{
-      "relative/path/to/file": "complete code..."
+      "relative/path/to/core_file": "complete working code..."
     }}
     Do not output markdown code blocks outside JSON.
     """
-    return json.loads(ask_groq(prompt, json_mode=True, max_tokens=2200))
+    return json.loads(ask_groq(prompt, json_mode=True, max_tokens=900))
 
 def stage_3_verification_and_harness(spec: dict, core_files: dict, language: str) -> dict:
     print(f"[Stage 3/4: Verification & Harness] 🧪 Engineering integration tests and build automation...")
-    time.sleep(5)
+    time.sleep(8)
     prompt = f"""
     You are a Staff QA & DevOps Engineer for '{spec['repo_name']}' in {language}.
     Existing modules: {list(core_files.keys())}
-    Generate all build automation (Makefile, pom.xml, CMakeLists.txt, or requirements.txt), test runners, 
-    and comprehensive unit/edge-case tests.
+    Generate build automation (Makefile, pom.xml, or requirements.txt) and unit/edge-case tests.
     Return ONLY a single valid JSON dictionary of additional file paths to complete code strings:
     {{
-      "tests/test_...": "test suite code...",
+      "tests/test_core...": "test suite code...",
       "Makefile": "build rules..."
     }}
     Do not output markdown code blocks outside JSON.
     """
-    return json.loads(ask_groq(prompt, json_mode=True, max_tokens=1800))
+    return json.loads(ask_groq(prompt, json_mode=True, max_tokens=850))
 
 def stage_4_enterprise_documentation(spec: dict, all_files: list, language: str) -> str:
     print(f"[Stage 4/4: Documentation] 📚 Publishing exhaustive architecture specification & docs...")
-    time.sleep(5)
+    time.sleep(8)
     repo_name = spec['repo_name']
     prompt = f"""
-    Write an exhaustive, enterprise-grade README.md for '{repo_name}' in {language}.
+    Write an enterprise-grade README.md for '{repo_name}' in {language}.
     Files included: {all_files}
     Structure:
     - Badges (use https://img.shields.io/badge/License-MIT-yellow.svg and https://img.shields.io/github/stars/{GH_USER}/{repo_name}?style=flat)
@@ -140,7 +136,7 @@ def stage_4_enterprise_documentation(spec: dict, all_files: list, language: str)
     - Build, Compilation & Test Execution Recipes
     Output ONLY raw Markdown.
     """
-    return ask_groq(prompt, json_mode=False, max_tokens=2000)
+    return ask_groq(prompt, json_mode=False, max_tokens=900)
 
 def execute_deep_build():
     category = random.choice(DOMAIN_CHALLENGES)
@@ -175,7 +171,7 @@ def execute_deep_build():
     (work_dir / "README.md").write_text(readme_content, encoding="utf-8")
     (work_dir / ".gitignore").write_text("*.o\n*.a\n*.out\n*.class\ntarget/\nbuild/\nbin/\nvenv/\n__pycache__/\n.DS_Store\n", encoding="utf-8")
 
-    # Native CI automation workflow
+    # Native CI/CD Workflow
     ci_path = work_dir / ".github" / "workflows" / "ci.yml"
     ci_path.parent.mkdir(parents=True, exist_ok=True)
     ci_path.write_text(
