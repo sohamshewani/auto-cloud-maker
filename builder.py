@@ -40,7 +40,8 @@ DOMAIN_CHALLENGES = [
 
 client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 GH_USER = os.environ.get("GITHUB_ACTOR", "sohamshewani")
-MODEL_NAME = "gemini-2.5-flash"
+MODEL_NAME = "gemini-3.8-flash"
+
 
 def run(cmd, cwd=None):
     res = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True, text=True)
