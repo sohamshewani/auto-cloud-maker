@@ -40,8 +40,9 @@ DOMAIN_CHALLENGES = [
 
 client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 GH_USER = os.environ.get("GITHUB_ACTOR", "sohamshewani")
-MODEL_NAME = "gemini-3.8-flash"
 
+# Dynamic fallback list to survive 503 High Demand spikes
+MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.5-flash-lite"]
 
 def run(cmd, cwd=None):
     res = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True, text=True)
@@ -55,18 +56,29 @@ def ask_gemini(prompt: str, json_mode: bool = False, max_tokens: int = 5000) -> 
     if json_mode:
         config.response_mime_type = "application/json"
 
-    for attempt in range(3):
-        try:
-            response = client.models.generate_content(
-                model=MODEL_NAME,
-                contents=prompt,
-                config=config
-            )
-            return response.text
-        except Exception as e:
-            print(f"⚠️ Gemini request retry ({attempt + 1}/3): {e}")
-            time.sleep(5)
-    raise RuntimeError("Gemini API generation failed.")
+    for model_name in MODELS:
+        for attempt in range(3):
+            try:
+                print(f"📡 Querying Gemini via [{model_name}] (attempt {attempt + 1})...")
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=config
+                )
+                if response.text:
+                    return response.text
+            except Exception as e:
+                err_str = str(e)
+                print(f"⚠️ [{model_name}] attempt {attempt + 1} notice: {err_str}")
+                # If 503 server overloaded or 429 rate limit, back off before next attempt
+                if "503" in err_str or "429" in err_str:
+                    wait_time = (attempt + 1) * 12
+                    print(f"⏳ Spike detected on [{model_name}]. Sleeping {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    break  # If model not found or invalid argument, try next fallback model immediately
+
+    raise RuntimeError("All configured Gemini models experienced high demand. Exiting for next cron cycle.")
 
 def execute_deep_build():
     category = random.choice(DOMAIN_CHALLENGES)
@@ -74,7 +86,7 @@ def execute_deep_build():
     language = random.choice(LANGUAGES)
 
     print("=" * 70)
-    print(f"🚀 INITIATING DEEP CLOUD PIPELINE VIA GEMINI 2.5 FLASH: [{language}]")
+    print(f"🚀 INITIATING DEEP CLOUD PIPELINE: [{language}]")
     print(f"🎯 Domain: {category['domain']}")
     print(f"🎯 Objective: {topic}")
     print("=" * 70)
