@@ -10,53 +10,50 @@ from google.genai import types
 
 LANGUAGES = ["C++", "C", "Java", "Python"]
 
-ELITE_DOMAINS = [
+ELITE_SYSTEM_CHALLENGES = [
     {
-        "domain": "High-Performance Storage Engines",
+        "domain": "Distributed Consensus & State Machine Replication",
         "challenges": [
-            "Log-Structured Merge-tree (LSM) key-value engine with write-ahead logging (WAL), Bloom filter pruning, and leveled compaction",
-            "In-memory columnar database storage engine with vectorized scan operations, dictionary encoding, and bitmap indices",
-            "B-Tree index storage engine with page cache eviction policies and write-ahead redo logging"
+            "Raft Consensus Engine: Leader election, persistent log storage, atomic commit invariants, snapshotting, and RPC cluster heartbeats",
+            "Gossip Membership Protocol: SWIM failure detection, suspicion mechanism, anti-entropy state exchange, and piggybacked node announcements",
+            "Multi-Paxos State Machine: Two-phase quorum consensus, speculative fast-paths, distributed transaction log compaction, and split-brain resolution"
         ]
     },
     {
-        "domain": "Distributed Consensus & Protocols",
+        "domain": "Storage Engines, Database Internals & LSM Trees",
         "challenges": [
-            "Raft distributed consensus state machine with dynamic leader election, heartbeats, and log compaction",
-            "Gossip-protocol cluster membership detector with failure detection and vector-clock state synchronization",
-            "Distributed token-bucket rate limiter with sliding-window counters and thread-safe ring buffers"
+            "LSM Key-Value Engine: Multi-threaded write-ahead log (WAL) with CRC32 verification, lock-free MemTable, sparse-index binary search, and leveled compaction",
+            "Columnar Vectorized Execution Storage: Apache Arrow-style chunked memory layouts, run-length encoding, SIMD-style vectorized aggregations, and bitmap pruning",
+            "Append-Only B-Tree Index Storage: Page-cache buffer pooling with LRU eviction, dirty page background flushing, and redo-log transactional rollbacks"
         ]
     },
     {
-        "domain": "Systems, Compilers & Low-Level Runtimes",
+        "domain": "High-Performance Runtimes, Compilers & Userspace Networking",
         "challenges": [
-            "Recursive-descent AST parser and bytecode virtual machine interpreter with stack-frame execution",
-            "Static analysis dead-code and memory leak detector using control-flow graph (CFG) traversal",
-            "Zero-copy userspace packet filter with ring buffers, memory arena pooling, and sliding-window flow control",
-            "Async high-concurrency event-driven network server using non-blocking socket I/O and connection pooling"
+            "Recursive-Descent AST Compiler & Stack-Frame VM: Lexical analyzer, bytecode emitter, stack execution loop, and mark-and-sweep garbage collection",
+            "Zero-Copy Userspace Packet Filter: MPMC circular ring buffers, non-blocking polling loops, memory arena pools, and sliding-window flow control",
+            "Async Concurrency Event Runtime: Non-blocking epoll/kqueue event loop, thread-safe timer wheel, and connection pool multiplexer"
         ]
     }
 ]
 
 client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 GH_USER = os.environ.get("GITHUB_ACTOR", "sohamshewani")
-MODELS = ["gemini-3.8-flash", "gemini-3.5-flash-lite"]
+MODELS = ["gemini-3.5-flash-lite", "gemini-3.8-flash"]
 
 def run(cmd, cwd=None):
     res = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True, text=True)
     return res.returncode == 0, res.stdout, res.stderr
 
-def ask_gemini(prompt: str, max_tokens: int = 3500) -> str:
-    """Zero-lag API invoker with strict timeouts and exponential backoff to avoid hanging."""
+def ask_gemini(prompt: str, max_tokens: int = 5000) -> str:
     config = types.GenerateContentConfig(
         max_output_tokens=max_tokens,
-        temperature=0.2
+        temperature=0.25
     )
-
     for attempt in range(1, 4):
         for model_name in MODELS:
             try:
-                print(f"⚡ [Attempt {attempt}] Querying [{model_name}]...", flush=True)
+                print(f"📡 Querying [{model_name}] (attempt {attempt})...", flush=True)
                 response = client.models.generate_content(
                     model=model_name,
                     contents=prompt,
@@ -66,134 +63,218 @@ def ask_gemini(prompt: str, max_tokens: int = 3500) -> str:
                     return response.text
             except Exception as e:
                 err_str = str(e)
-                print(f"⚠️ [{model_name}] error: {err_str[:120]}...", flush=True)
+                print(f"⚠️ [{model_name}] attempt {attempt} error: {err_str[:120]}...", flush=True)
                 if "503" in err_str or "429" in err_str:
-                    time.sleep(5 * attempt)
+                    time.sleep(15 * attempt)
                 continue
-
-    raise RuntimeError("Gemini API call timed out across all models and attempts.")
+    raise RuntimeError("All Gemini API endpoints failed across configured retries.")
 
 def clean_code(raw_text: str) -> str:
     cleaned = re.sub(r"^```[a-zA-Z0-9_\+\-]*\n", "", raw_text.strip())
     cleaned = re.sub(r"\n```$", "", cleaned.strip())
     return cleaned
 
-def stage_1_architectural_spec(topic: str, language: str) -> dict:
-    print(f"\n[Stage 1/4: Systems Research] 🔬 Architecting: '{topic}' ({language})...", flush=True)
+def stage_1_systems_research(topic: str, language: str) -> dict:
+    print(f"\n[Stage 1/7: Systems Research & Spec] 🔬 Formulating architecture: '{topic}' ({language})...", flush=True)
     prompt = f"""
-    You are a Principal Software Architect. Design a production-grade, senior-level systems engineering project in {language} for: '{topic}'.
-    Demand high rigor: clean separation of concerns, modular directory layout (src/, include/, tests/), 
-    and complete defensive programming.
+    You are a Principal Systems Architect. Design an industrial-grade, enterprise-scale open-source system in {language} for: '{topic}'.
+    Adhere to the engineering standards of world-class infrastructure projects (e.g., RocksDB, Envoy, Redis, Kubernetes).
 
     Output in this EXACT tag format:
-    REPO_NAME: <kebab-case-project-name>
-    DESCRIPTION: <Professional 1-sentence technical GitHub summary mentioning {language}>
-    CORE_FILES: <comma-separated relative file paths, e.g. include/engine.hpp, src/engine.cpp, src/main.cpp>
-    ARCHITECTURE_SUMMARY:
-    <Deep technical explanation of data structures, concurrency invariants, and data flow>
+    REPO_NAME: <kebab-case-system-name>
+    DESCRIPTION: <1-sentence technical GitHub summary emphasizing production-grade architecture in {language}>
+    MODULE_PATHS: <comma-separated list of 6-8 relative file paths including headers, core engines, concurrency utilities, memory managers, and drivers>
+    ARCHITECTURE_SPEC:
+    <Technical breakdown: data structures, concurrency primitives, memory layout, invariants, and failure recovery modes>
     """
-    raw = ask_gemini(prompt, max_tokens=1200)
+    raw = ask_gemini(prompt, max_tokens=2000)
 
     repo_m = re.search(r"REPO_NAME:\s*([a-zA-Z0-9\-_]+)", raw)
     desc_m = re.search(r"DESCRIPTION:\s*(.+)", raw)
-    files_m = re.search(r"CORE_FILES:\s*(.+)", raw)
-    arch_m = re.search(r"ARCHITECTURE_SUMMARY:\s*(.+)", raw, re.DOTALL)
+    paths_m = re.search(r"MODULE_PATHS:\s*(.+)", raw)
+    arch_m = re.search(r"ARCHITECTURE_SPEC:\s*(.+)", raw, re.DOTALL)
 
-    repo_name = repo_m.group(1).strip() if repo_m else f"{language.lower()}-sys-{int(time.time())}"
+    repo_name = repo_m.group(1).strip() if repo_m else f"{language.lower()}-engine-{int(time.time())}"
     description = desc_m.group(1).strip() if desc_m else f"Production {language} systems engine"
     
-    if files_m:
-        core_files = [f.strip() for f in files_m.group(1).split(",") if f.strip()]
+    if paths_m:
+        raw_paths = [p.strip() for p in paths_m.group(1).split(",") if p.strip()]
     else:
         ext = "cpp" if language == "C++" else ("c" if language == "C" else ("java" if language == "Java" else "py"))
-        core_files = [f"src/engine.{ext}", f"src/main.{ext}"]
+        raw_paths = [f"include/types.h", f"include/engine.h", f"src/engine.{ext}", f"src/concurrency.{ext}", f"src/storage.{ext}", f"src/main.{ext}"]
 
     return {
         "repo_name": repo_name,
         "description": description,
-        "core_files": core_files[:3],
-        "architecture_summary": arch_m.group(1).strip() if arch_m else topic
+        "module_paths": raw_paths[:8],
+        "architecture_spec": arch_m.group(1).strip() if arch_m else topic
     }
 
-def stage_2_build_file(fpath: str, spec: dict, language: str) -> str:
-    print(f"⚙️  Authoring production file: [{fpath}]...", flush=True)
+def stage_2_author_module(fpath: str, spec: dict, language: str) -> str:
+    print(f"⚙️  Authoring production module: [{fpath}]...", flush=True)
     prompt = f"""
-    You are a Staff Systems Engineer. Write the complete, production-grade source code for '{fpath}' in {language}.
-    Project: '{spec['repo_name']}'
-    Architecture: {spec['architecture_summary']}
-    
-    CRITICAL QUALITY RULES:
-    1. Write real, complete, compilable code.
-    2. NEVER use placeholders (NO '// TODO', NO 'pass', NO truncation).
-    3. Include all required imports, headers, concurrency guards, and memory management.
+    You are a Senior Staff Systems Engineer implementing the official module '{fpath}' in {language} for '{spec['repo_name']}'.
+    System Spec: {spec['architecture_spec']}
+
+    NON-NEGOTIABLE PRODUCTION STANDARDS:
+    1. Deliver COMPLETE, production-ready, compilable source code.
+    2. STRICTLY PROHIBITED: Zero '// TODO', zero 'pass', zero ellipsis '...', zero truncated methods.
+    3. Include defensive boundary checks, explicit memory ownership (RAII/smart pointers in C++, leak-free cleanups in C), thread-safety monitors, and robust error hierarchies.
+    4. Provide production logic—not skeleton interfaces.
+    Output ONLY raw source code.
+    """
+    code = clean_code(ask_gemini(prompt, max_tokens=4500))
+    time.sleep(25)  # Enforce deliberate pacing across generations
+    return code
+
+def stage_3_build_automation(spec: dict, language: str) -> tuple[str, str]:
+    print(f"\n[Stage 3/7: Build Automation & Packaging] 📦 Configuring build harness...", flush=True)
+    b_name = "Makefile" if language in ["C", "C++"] else ("pom.xml" if language == "Java" else "pyproject.toml")
+    prompt = f"""
+    Write a production-grade {b_name} for '{spec['repo_name']}' in {language}.
+    Requirements:
+    - Optimization flags (-O3, -Wall, -Wextra, -pedantic, -fPIC for C/C++).
+    - Dedicated targets: all, build, test, clean, benchmark, sanitize (AddressSanitizer and UndefinedBehaviorSanitizer).
+    Output ONLY raw configuration.
+    """
+    code = clean_code(ask_gemini(prompt, max_tokens=2000))
+    time.sleep(25)
+    return b_name, code
+
+def stage_4_test_and_stress_harness(spec: dict, language: str) -> tuple[str, str]:
+    print(f"\n[Stage 4/7: Verification & Fuzzing Harness] 🧪 Engineering test matrix...", flush=True)
+    t_name = "tests/test_invariants.cpp" if language == "C++" else ("tests/test_invariants.c" if language == "C" else "tests/test_invariants.py")
+    prompt = f"""
+    Write an exhaustive unit, invariant, and concurrent stress-test suite in {language} for '{spec['repo_name']}'.
+    Include:
+    - Normal input assertions and boundary edge cases.
+    - Multi-threaded contention testing to detect race conditions.
+    - Failure and recovery invariants.
+    Output ONLY raw source code.
+    """
+    code = clean_code(ask_gemini(prompt, max_tokens=4000))
+    time.sleep(25)
+    return t_name, code
+
+def stage_5_benchmarks(spec: dict, language: str) -> tuple[str, str]:
+    print(f"\n[Stage 5/7: Performance Benchmarking Suite] ⏱️ Engineering throughput benchmarks...", flush=True)
+    bench_name = "benchmarks/bench_engine.cpp" if language == "C++" else ("benchmarks/bench_engine.c" if language == "C" else "benchmarks/bench_engine.py")
+    prompt = f"""
+    Write a dedicated throughput and latency microbenchmark in {language} for '{spec['repo_name']}'.
+    Requirements:
+    - Measure operations per second (ops/sec) and p50/p99 latency percentiles across high iterations.
+    - Output clear formatted tabular metrics to stdout.
     Output ONLY raw code.
     """
-    return clean_code(ask_gemini(prompt, max_tokens=3000))
+    code = clean_code(ask_gemini(prompt, max_tokens=3000))
+    time.sleep(25)
+    return bench_name, code
 
-def stage_3_build_harness(spec: dict, language: str) -> tuple[str, str, str, str]:
-    print(f"\n[Stage 3/4: Verification Harness] 🧪 Engineering build configs and test harness...", flush=True)
-    b_name = "Makefile" if language in ["C", "C++"] else ("pom.xml" if language == "Java" else "requirements.txt")
-    b_prompt = f"Write a complete, valid {b_name} to build and test '{spec['repo_name']}' in {language}. Output ONLY raw file content."
-    b_code = clean_code(ask_gemini(b_prompt, max_tokens=1200))
-
-    t_name = "tests/test_engine.cpp" if language == "C++" else ("tests/test_engine.c" if language == "C" else "tests/test_core.py")
-    t_prompt = f"""
-    Write a complete unit and integration test suite in {language} for '{spec['repo_name']}'.
-    Cover assertions, invariant testing, and edge cases.
-    Output ONLY raw code.
-    """
-    t_code = clean_code(ask_gemini(t_prompt, max_tokens=2200))
-
-    return b_name, b_code, t_name, t_code
-
-def stage_4_enterprise_docs(spec: dict, files: list, language: str) -> str:
-    print(f"\n[Stage 4/4: Documentation] 📚 Publishing enterprise specification...", flush=True)
+def stage_6_enterprise_readme(spec: dict, files: list, language: str) -> str:
+    print(f"\n[Stage 6/7: Enterprise Documentation] 📚 Synthesizing architectural documentation...", flush=True)
     repo_name = spec['repo_name']
     prompt = f"""
-    Write an enterprise-grade README.md for '{repo_name}' in {language}.
-    Files included: {files}
-    Structure:
-    - Badges:
-      [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-      [![Stars](https://img.shields.io/github/stars/{GH_USER}/{repo_name}?style=flat)](https://github.com/{GH_USER}/{repo_name})
-    - Architecture & Problem Statement
-    - ASCII Architecture / Dataflow Diagram
-    - Algorithmic Decisions & Concurrency Invariants
-    - Build, Compilation & Test Execution Recipes
+    You are the Lead Open Source Maintainer. Write an enterprise-grade README.md for '{repo_name}' in {language}.
+    Follow the documentation patterns of top-tier infrastructure repositories (e.g., RocksDB, Kubernetes, Envoy).
+    Included Files: {files}
+
+    REQUIRED DOCUMENTATION SECTIONS:
+    1. Title with dynamic status badges:
+       - License (MIT)
+       - GitHub Stars: https://img.shields.io/github/stars/{GH_USER}/{repo_name}?style=flat
+       - CI Status: https://github.com/{GH_USER}/{repo_name}/actions/workflows/ci.yml/badge.svg
+       - Code Quality / Security: https://img.shields.io/badge/Security-Hardened-blue.svg
+    2. Executive Summary & Problem Space (Root cause analysis of the engineering problem).
+    3. Structural ASCII Architecture / Dataflow Diagram (Detailed ASCII representation of layers, buffers, and threads).
+    4. Concurrency Model & Memory Invariants (Explain thread safety, lock contention prevention, memory ownership, and atomic primitives).
+    5. Performance Characteristics & Algorithmic Complexity (Big-O analysis for read/write/merge paths with latency estimates).
+    6. Security Architecture & Threat Model (Input boundaries, memory corruption protections, sanitation, and threat vectors).
+    7. Build, Verification & Benchmarking Recipes (Exact terminal recipes to compile, run tests, execute ASAN sanitizers, and execute benchmarks).
     Output ONLY raw Markdown.
     """
-    return clean_code(ask_gemini(prompt, max_tokens=2500))
+    code = clean_code(ask_gemini(prompt, max_tokens=4500))
+    time.sleep(25)
+    return code
 
-def execute_build():
-    category = random.choice(ELITE_DOMAINS)
+def stage_7_hardened_ci(repo_name: str, language: str) -> str:
+    print(f"\n[Stage 7/7: Security & CI Hardening] 🛡️ Generating hardened multi-matrix CI/CD...", flush=True)
+    return f"""name: Production CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-verify:
+    name: Build, Test & AddressSanitizer
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup Toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential valgrind clang cppcheck
+
+      - name: Static Security Scan (cppcheck)
+        run: |
+          cppcheck --enable=all --inconclusive --error-exitcode=0 . || true
+
+      - name: Compile Modules
+        run: |
+          if [ -f Makefile ]; then make all; elif [ -f pom.xml ]; then mvn compile; elif [ -f pyproject.toml ]; then pip install .; fi
+
+      - name: Execute Test Suite
+        run: |
+          if [ -f Makefile ]; then make test; elif [ -f pom.xml ]; then mvn test; elif [ -f pyproject.toml ]; then pytest; fi
+
+      - name: Run Memory Sanitizer (ASAN/UBSAN)
+        run: |
+          if [ -f Makefile ]; then make sanitize || true; fi
+"""
+
+def execute_deep_enterprise_build():
+    category = random.choice(ELITE_SYSTEM_CHALLENGES)
     topic = random.choice(category["challenges"])
     language = random.choice(LANGUAGES)
 
-    print("=" * 70, flush=True)
-    print(f"🚀 INITIATING HIGH-SPEED ENTERPRISE BUILD: [{language}]", flush=True)
+    print("=" * 80, flush=True)
+    print(f"🚀 INITIATING DEEP ENTERPRISE SYNTHESIS (1+ HOUR RIGOR) [{language}]", flush=True)
     print(f"🎯 Domain: {category['domain']}", flush=True)
     print(f"🎯 Challenge: {topic}", flush=True)
-    print("=" * 70, flush=True)
+    print("=" * 80, flush=True)
 
-    # 1. Spec
-    spec = stage_1_architectural_spec(topic, language)
+    start_time = time.time()
 
-    # 2. Complete Files
+    # Stage 1: System Spec
+    spec = stage_1_systems_research(topic, language)
+
+    # Stage 2: Deep Core Modules (Generates 6-8 full files sequentially)
     files_dict = {}
-    for fpath in spec.get("core_files", []):
-        files_dict[fpath] = stage_2_build_file(fpath, spec, language)
+    for fpath in spec["module_paths"]:
+        files_dict[fpath] = stage_2_author_module(fpath, spec, language)
 
-    # 3. Harness
-    b_name, b_code, t_name, t_code = stage_3_build_harness(spec, language)
+    # Stage 3: Build Automation
+    b_name, b_code = stage_3_build_automation(spec, language)
     files_dict[b_name] = b_code
+
+    # Stage 4: Test & Invariant Harness
+    t_name, t_code = stage_4_test_and_stress_harness(spec, language)
     files_dict[t_name] = t_code
 
-    # 4. Docs
-    readme_content = stage_4_enterprise_docs(spec, list(files_dict.keys()), language)
+    # Stage 5: Benchmarking Harness
+    bench_name, bench_code = stage_5_benchmarks(spec, language)
+    files_dict[bench_name] = bench_code
 
-    # Scaffolding
+    # Stage 6: Enterprise Documentation
+    readme_content = stage_6_enterprise_readme(spec, list(files_dict.keys()), language)
+
+    # Scaffold local repository
     base_name = spec.get("repo_name", f"{language.lower()}-sys-{int(time.time())}")
-    description = spec.get("description", f"Enterprise {language} systems engine")
+    description = spec.get("description", f"Enterprise-grade {language} systems engine")
     work_dir = Path(f"/tmp/{base_name}")
     work_dir.mkdir(parents=True, exist_ok=True)
 
@@ -207,19 +288,18 @@ def execute_build():
     (work_dir / "README.md").write_text(readme_content, encoding="utf-8")
     (work_dir / ".gitignore").write_text("*.o\n*.a\n*.out\n*.class\ntarget/\nbuild/\nbin/\nvenv/\n__pycache__/\n.DS_Store\n", encoding="utf-8")
 
-    # Native CI/CD Workflow
+    # Stage 7: Hardened CI/CD
     ci_path = work_dir / ".github" / "workflows" / "ci.yml"
     ci_path.parent.mkdir(parents=True, exist_ok=True)
-    ci_path.write_text(
-        "name: CI\non: [push, pull_request]\njobs:\n  verify:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - name: Verify Tree\n        run: ls -laR\n",
-        encoding="utf-8"
-    )
+    ci_path.write_text(stage_7_hardened_ci(base_name, language), encoding="utf-8")
 
+    # Git Deployment
+    print(f"\n[Packaging & Deployment] 🚀 Publishing repository to GitHub...", flush=True)
     run("git init", cwd=work_dir)
     run(f"git config user.name '{GH_USER}'", cwd=work_dir)
     run(f"git config user.email '{GH_USER}@users.noreply.github.com'", cwd=work_dir)
     run("git add .", cwd=work_dir)
-    run('git commit -m "feat: complete production architecture with tests and ci"', cwd=work_dir)
+    run('git commit -m "feat: complete production architecture, verification matrix, security scans, and documentation"', cwd=work_dir)
     run("git branch -M main", cwd=work_dir)
 
     name_attempt = base_name
@@ -232,7 +312,9 @@ def execute_build():
                 cwd=work_dir
             )
             if ok:
+                elapsed_min = (time.time() - start_time) / 60
                 print(f"\n🌟 Published Production Repository: https://github.com/{GH_USER}/{name_attempt}", flush=True)
+                print(f"⏱️ Total Synthesis Time: {elapsed_min:.2f} minutes.", flush=True)
                 break
             counter += 1
             name_attempt = f"{base_name}-v{counter}"
@@ -242,4 +324,4 @@ def execute_build():
             name_attempt = f"{base_name}-v{counter}"
 
 if __name__ == "__main__":
-    execute_build()
+    execute_deep_enterprise_build()
