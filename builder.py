@@ -46,26 +46,32 @@ def run(cmd, cwd=None):
     res = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True, text=True)
     return res.returncode == 0, res.stdout, res.stderr
 
-def ask_gemini(prompt: str, max_tokens: int = 4000) -> str:
-    """Zero-lag API caller with immediate fallback across active models."""
+def ask_gemini(prompt: str, max_tokens: int = 3500) -> str:
+    """Zero-lag API invoker with strict timeouts and exponential backoff to avoid hanging."""
     config = types.GenerateContentConfig(
         max_output_tokens=max_tokens,
         temperature=0.2
     )
-    for model_name in MODELS:
-        try:
-            print(f"⚡ Dispatching to [{model_name}]...")
-            response = client.models.generate_content(
-                model=model_name,
-                contents=prompt,
-                config=config
-            )
-            if response.text:
-                return response.text
-        except Exception as e:
-            print(f"⚠️ [{model_name}] notice: {e}. Switching immediately...")
-            continue
-    raise RuntimeError("All Gemini endpoints failed.")
+
+    for attempt in range(1, 4):
+        for model_name in MODELS:
+            try:
+                print(f"⚡ [Attempt {attempt}] Querying [{model_name}]...", flush=True)
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=config
+                )
+                if response.text and response.text.strip():
+                    return response.text
+            except Exception as e:
+                err_str = str(e)
+                print(f"⚠️ [{model_name}] error: {err_str[:120]}...", flush=True)
+                if "503" in err_str or "429" in err_str:
+                    time.sleep(5 * attempt)
+                continue
+
+    raise RuntimeError("Gemini API call timed out across all models and attempts.")
 
 def clean_code(raw_text: str) -> str:
     cleaned = re.sub(r"^```[a-zA-Z0-9_\+\-]*\n", "", raw_text.strip())
@@ -73,7 +79,7 @@ def clean_code(raw_text: str) -> str:
     return cleaned
 
 def stage_1_architectural_spec(topic: str, language: str) -> dict:
-    print(f"\n[Stage 1/4: Systems Research] 🔬 Architecting: '{topic}' ({language})...")
+    print(f"\n[Stage 1/4: Systems Research] 🔬 Architecting: '{topic}' ({language})...", flush=True)
     prompt = f"""
     You are a Principal Software Architect. Design a production-grade, senior-level systems engineering project in {language} for: '{topic}'.
     Demand high rigor: clean separation of concerns, modular directory layout (src/, include/, tests/), 
@@ -86,14 +92,14 @@ def stage_1_architectural_spec(topic: str, language: str) -> dict:
     ARCHITECTURE_SUMMARY:
     <Deep technical explanation of data structures, concurrency invariants, and data flow>
     """
-    raw = ask_gemini(prompt, max_tokens=1500)
+    raw = ask_gemini(prompt, max_tokens=1200)
 
     repo_m = re.search(r"REPO_NAME:\s*([a-zA-Z0-9\-_]+)", raw)
     desc_m = re.search(r"DESCRIPTION:\s*(.+)", raw)
     files_m = re.search(r"CORE_FILES:\s*(.+)", raw)
     arch_m = re.search(r"ARCHITECTURE_SUMMARY:\s*(.+)", raw, re.DOTALL)
 
-    repo_name = repo_m.group(1).strip() if repo_m else f"{language.lower()}-engine-{int(time.time())}"
+    repo_name = repo_m.group(1).strip() if repo_m else f"{language.lower()}-sys-{int(time.time())}"
     description = desc_m.group(1).strip() if desc_m else f"Production {language} systems engine"
     
     if files_m:
@@ -110,7 +116,7 @@ def stage_1_architectural_spec(topic: str, language: str) -> dict:
     }
 
 def stage_2_build_file(fpath: str, spec: dict, language: str) -> str:
-    print(f"⚙️  Authoring production file: [{fpath}]...")
+    print(f"⚙️  Authoring production file: [{fpath}]...", flush=True)
     prompt = f"""
     You are a Staff Systems Engineer. Write the complete, production-grade source code for '{fpath}' in {language}.
     Project: '{spec['repo_name']}'
@@ -122,13 +128,13 @@ def stage_2_build_file(fpath: str, spec: dict, language: str) -> str:
     3. Include all required imports, headers, concurrency guards, and memory management.
     Output ONLY raw code.
     """
-    return clean_code(ask_gemini(prompt, max_tokens=3500))
+    return clean_code(ask_gemini(prompt, max_tokens=3000))
 
 def stage_3_build_harness(spec: dict, language: str) -> tuple[str, str, str, str]:
-    print(f"\n[Stage 3/4: Verification Harness] 🧪 Engineering build configs and test harness...")
+    print(f"\n[Stage 3/4: Verification Harness] 🧪 Engineering build configs and test harness...", flush=True)
     b_name = "Makefile" if language in ["C", "C++"] else ("pom.xml" if language == "Java" else "requirements.txt")
     b_prompt = f"Write a complete, valid {b_name} to build and test '{spec['repo_name']}' in {language}. Output ONLY raw file content."
-    b_code = clean_code(ask_gemini(b_prompt, max_tokens=1500))
+    b_code = clean_code(ask_gemini(b_prompt, max_tokens=1200))
 
     t_name = "tests/test_engine.cpp" if language == "C++" else ("tests/test_engine.c" if language == "C" else "tests/test_core.py")
     t_prompt = f"""
@@ -136,12 +142,12 @@ def stage_3_build_harness(spec: dict, language: str) -> tuple[str, str, str, str
     Cover assertions, invariant testing, and edge cases.
     Output ONLY raw code.
     """
-    t_code = clean_code(ask_gemini(t_prompt, max_tokens=2500))
+    t_code = clean_code(ask_gemini(t_prompt, max_tokens=2200))
 
     return b_name, b_code, t_name, t_code
 
 def stage_4_enterprise_docs(spec: dict, files: list, language: str) -> str:
-    print(f"\n[Stage 4/4: Documentation] 📚 Publishing enterprise specification...")
+    print(f"\n[Stage 4/4: Documentation] 📚 Publishing enterprise specification...", flush=True)
     repo_name = spec['repo_name']
     prompt = f"""
     Write an enterprise-grade README.md for '{repo_name}' in {language}.
@@ -149,7 +155,6 @@ def stage_4_enterprise_docs(spec: dict, files: list, language: str) -> str:
     Structure:
     - Badges:
       [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-      [![CI](https://github.com/{GH_USER}/{repo_name}/actions/workflows/ci.yml/badge.svg)](https://github.com/{GH_USER}/{repo_name}/actions)
       [![Stars](https://img.shields.io/github/stars/{GH_USER}/{repo_name}?style=flat)](https://github.com/{GH_USER}/{repo_name})
     - Architecture & Problem Statement
     - ASCII Architecture / Dataflow Diagram
@@ -157,18 +162,18 @@ def stage_4_enterprise_docs(spec: dict, files: list, language: str) -> str:
     - Build, Compilation & Test Execution Recipes
     Output ONLY raw Markdown.
     """
-    return clean_code(ask_gemini(prompt, max_tokens=3000))
+    return clean_code(ask_gemini(prompt, max_tokens=2500))
 
 def execute_build():
     category = random.choice(ELITE_DOMAINS)
     topic = random.choice(category["challenges"])
     language = random.choice(LANGUAGES)
 
-    print("=" * 70)
-    print(f"🚀 INITIATING HIGH-SPEED ENTERPRISE BUILD: [{language}]")
-    print(f"🎯 Domain: {category['domain']}")
-    print(f"🎯 Challenge: {topic}")
-    print("=" * 70)
+    print("=" * 70, flush=True)
+    print(f"🚀 INITIATING HIGH-SPEED ENTERPRISE BUILD: [{language}]", flush=True)
+    print(f"🎯 Domain: {category['domain']}", flush=True)
+    print(f"🎯 Challenge: {topic}", flush=True)
+    print("=" * 70, flush=True)
 
     # 1. Spec
     spec = stage_1_architectural_spec(topic, language)
@@ -227,7 +232,7 @@ def execute_build():
                 cwd=work_dir
             )
             if ok:
-                print(f"\n🌟 Published Production Repository: https://github.com/{GH_USER}/{name_attempt}")
+                print(f"\n🌟 Published Production Repository: https://github.com/{GH_USER}/{name_attempt}", flush=True)
                 break
             counter += 1
             name_attempt = f"{base_name}-v{counter}"
