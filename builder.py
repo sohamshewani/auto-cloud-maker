@@ -5,9 +5,10 @@ import random
 import re
 import subprocess
 from pathlib import Path
-from groq import Groq
+from google import genai
+from google.genai import types
 
-LANGUAGES = ["Python", "C", "C++", "Java", "Shell"]
+LANGUAGES = ["C++", "C", "Java", "Python", "Shell"]
 
 DOMAIN_CHALLENGES = [
     {
@@ -37,106 +38,34 @@ DOMAIN_CHALLENGES = [
     }
 ]
 
-client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 GH_USER = os.environ.get("GITHUB_ACTOR", "sohamshewani")
-
-# Active production models on free tier
-MODELS = ["qwen/qwen3.8-27b", "allam-2-7b"]
+MODEL_NAME = "gemini-2.5-flash"
 
 def run(cmd, cwd=None):
     res = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True, text=True)
     return res.returncode == 0, res.stdout, res.stderr
 
-def ask_groq(prompt: str, json_mode: bool = True, max_tokens: int = 900) -> str:
-    """Robust API invoker tailored for free-tier token windows."""
-    for model in MODELS:
-        for attempt in range(4):
-            try:
-                kwargs = {
-                    "messages": [{"role": "user", "content": prompt}],
-                    "model": model,
-                    "max_tokens": max_tokens
-                }
-                if json_mode:
-                    kwargs["response_format"] = {"type": "json_object"}
-                
-                res = client.chat.completions.create(**kwargs)
-                return res.choices[0].message.content
-            except Exception as e:
-                err_str = str(e)
-                if "429" in err_str:
-                    wait_match = re.search(r"try again in ([\d\.]+)s", err_str)
-                    sleep_time = float(wait_match.group(1)) + 2.0 if wait_match else (15 * (attempt + 1))
-                    print(f"⏳ Rate limit reached on [{model}]. Pausing {sleep_time:.1f}s...")
-                    time.sleep(sleep_time)
-                else:
-                    print(f"⚠️️ Model [{model}] notice: {e}. Trying fallback...")
-                    break
-    raise RuntimeError("All available model endpoints exhausted.")
+def ask_gemini(prompt: str, json_mode: bool = False, max_tokens: int = 5000) -> str:
+    config = types.GenerateContentConfig(
+        max_output_tokens=max_tokens,
+        temperature=0.2
+    )
+    if json_mode:
+        config.response_mime_type = "application/json"
 
-def stage_1_systems_research(topic: str, language: str) -> dict:
-    print(f"\n[Stage 1/4: Systems Research] 🔬 Specifying architecture for: '{topic}' ({language})...")
-    prompt = f"""
-    You are a Principal Software Architect. Design a production-grade, deep engineering system in {language} for: '{topic}'.
-    Demand high rigor: clean separation of concerns, modular interfaces, and zero toy shortcuts.
-    Return ONLY a valid JSON object:
-    {{
-      "repo_name": "kebab-case-system-name",
-      "description": "Professional technical 1-sentence GitHub summary mentioning {language}",
-      "architecture_summary": "Deep architectural explanation of data flow, memory model, and concurrency",
-      "file_manifest": ["src/...", "include/...", "Makefile or pom.xml or requirements.txt"]
-    }}
-    Do not output markdown code blocks outside JSON.
-    """
-    return json.loads(ask_groq(prompt, json_mode=True, max_tokens=700))
-
-def stage_2_core_implementation(spec: dict, language: str) -> dict:
-    print(f"[Stage 2/4: Core Implementation] ⚙️ Building core modules and libraries...")
-    time.sleep(8)
-    prompt = f"""
-    You are the Lead Systems Engineer. Implement the primary modular code for '{spec['repo_name']}' in {language}.
-    Spec: {spec['architecture_summary']}
-    Write real, production-quality implementation files with clean error handling.
-    Return ONLY a single valid JSON dictionary where keys are relative file paths and values are complete code strings:
-    {{
-      "relative/path/to/core_file": "complete working code..."
-    }}
-    Do not output markdown code blocks outside JSON.
-    """
-    return json.loads(ask_groq(prompt, json_mode=True, max_tokens=900))
-
-def stage_3_verification_and_harness(spec: dict, core_files: dict, language: str) -> dict:
-    print(f"[Stage 3/4: Verification & Harness] 🧪 Engineering integration tests and build automation...")
-    time.sleep(8)
-    prompt = f"""
-    You are a Staff QA & DevOps Engineer for '{spec['repo_name']}' in {language}.
-    Existing modules: {list(core_files.keys())}
-    Generate build automation (Makefile, pom.xml, or requirements.txt) and unit/edge-case tests.
-    Return ONLY a single valid JSON dictionary of additional file paths to complete code strings:
-    {{
-      "tests/test_core...": "test suite code...",
-      "Makefile": "build rules..."
-    }}
-    Do not output markdown code blocks outside JSON.
-    """
-    return json.loads(ask_groq(prompt, json_mode=True, max_tokens=850))
-
-def stage_4_enterprise_documentation(spec: dict, all_files: list, language: str) -> str:
-    print(f"[Stage 4/4: Documentation] 📚 Publishing exhaustive architecture specification & docs...")
-    time.sleep(8)
-    repo_name = spec['repo_name']
-    prompt = f"""
-    Write an enterprise-grade README.md for '{repo_name}' in {language}.
-    Files included: {all_files}
-    Structure:
-    - Badges (use https://img.shields.io/badge/License-MIT-yellow.svg and https://img.shields.io/github/stars/{GH_USER}/{repo_name}?style=flat)
-    - Architecture & Problem Statement
-    - ASCII Architecture / Dataflow Diagram
-    - Algorithmic Decisions & Concurrency Invariants
-    - Build, Compilation & Test Execution Recipes
-    Output ONLY raw Markdown.
-    """
-    return ask_groq(prompt, json_mode=False, max_tokens=900)
+    for attempt in range(3):
+        try:
+            response = client.models.generate_content(
+                model=MODEL_NAME,
+                contents=prompt,
+                config=config
+            )
+            return response.text
+        except Exception as e:
+            print(f"⚠️ Gemini request retry ({attempt + 1}/3): {e}")
+            time.sleep(5)
+    raise RuntimeError("Gemini API generation failed.")
 
 def execute_deep_build():
     category = random.choice(DOMAIN_CHALLENGES)
@@ -144,31 +73,49 @@ def execute_deep_build():
     language = random.choice(LANGUAGES)
 
     print("=" * 70)
-    print(f"🚀 INITIATING DEEP CLOUD ENGINEERING CYCLE: [{language}]")
+    print(f"🚀 INITIATING DEEP CLOUD PIPELINE VIA GEMINI 2.5 FLASH: [{language}]")
     print(f"🎯 Domain: {category['domain']}")
     print(f"🎯 Objective: {topic}")
     print("=" * 70)
 
-    spec = stage_1_systems_research(topic, language)
-    core_files = stage_2_core_implementation(spec, language)
-    harness_files = stage_3_verification_and_harness(spec, core_files, language)
+    # Stage 1: Architecture Specification & Manifest
+    print("\n[Stage 1/4: Systems Research] 🔬 Generating architecture specification...")
+    spec_prompt = f"""
+    You are a Principal Systems Architect. Design an enterprise-grade, production-quality system in {language} for: '{topic}'.
+    Demand senior-level engineering rigor: clean separation of concerns, modular directory hierarchy (src/, include/, tests/), 
+    and complete defensive programming.
+    Return ONLY a single valid JSON object:
+    {{
+      "repo_name": "kebab-case-project-name",
+      "description": "Professional 1-sentence technical GitHub summary mentioning {language}",
+      "architecture_summary": "Exhaustive technical description of data structures, concurrency model, and data flow",
+      "files": {{
+        "relative/path/to/file": "full complete compilable code..."
+      }},
+      "readme": "# Markdown Documentation"
+    }}
+    CRITICAL: Write COMPLETE, UNTRUNCATED, compilable source files. Include build automation (Makefile, pom.xml, or requirements.txt), 
+    modular core engines, comprehensive unit/integration test suites, and an exhaustive README with ASCII architecture diagrams.
+    """
 
-    all_files = {**core_files, **harness_files}
-    readme_content = stage_4_enterprise_documentation(spec, list(all_files.keys()), language)
+    raw_output = ask_gemini(spec_prompt, json_mode=True, max_tokens=8000)
+    data = json.loads(raw_output)
 
-    base_name = spec.get("repo_name", f"{language.lower()}-engine-{int(time.time())}")
-    description = spec.get("description", f"Enterprise {language} systems engine")
+    base_name = data.get("repo_name", f"{language.lower()}-engine-{int(time.time())}")
+    description = data.get("description", f"Enterprise {language} systems engine")
     work_dir = Path(f"/tmp/{base_name}")
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    for rel_path, code in all_files.items():
+    # Stage 2 & 3: File Deployment
+    print(f"\n[Stage 2 & 3: Implementation & Harness] 📦 Writing complete file tree for {base_name}...")
+    for rel_path, code in data.get("files", {}).items():
         dest = work_dir / rel_path
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(code, encoding="utf-8")
         if dest.suffix in [".sh", ".py"]:
             dest.chmod(0o755)
 
-    (work_dir / "README.md").write_text(readme_content, encoding="utf-8")
+    (work_dir / "README.md").write_text(data.get("readme", f"# {base_name}"), encoding="utf-8")
     (work_dir / ".gitignore").write_text("*.o\n*.a\n*.out\n*.class\ntarget/\nbuild/\nbin/\nvenv/\n__pycache__/\n.DS_Store\n", encoding="utf-8")
 
     # Native CI/CD Workflow
@@ -179,6 +126,8 @@ def execute_deep_build():
         encoding="utf-8"
     )
 
+    # Stage 4: Cloud Publishing
+    print("\n[Stage 4/4: Cloud Publishing] 🚀 Pushing production repository to GitHub...")
     run("git init", cwd=work_dir)
     run(f"git config user.name '{GH_USER}'", cwd=work_dir)
     run(f"git config user.email '{GH_USER}@users.noreply.github.com'", cwd=work_dir)
