@@ -2,8 +2,8 @@ name: Cloud Autonomous Maker
 
 on:
   schedule:
-    # Triggers every 2 hours: ~65-75 min deep build followed by a ~45 min break
-    - cron: '0 */2 * * *'
+    # Autonomous trigger every 15 minutes
+    - cron: '*/15 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -30,4 +30,3 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
           GITHUB_ACTOR: ${{ github.actor }}
         run: python builder.py
-
