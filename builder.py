@@ -39,7 +39,7 @@ ELITE_SYSTEM_CHALLENGES = [
 
 client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"), http_options={"timeout": 60})
 GH_USER = os.environ.get("GITHUB_ACTOR", "sohamshewani")
-MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]
+MODELS = ["gemini-3.5-flash-lite", "gemini-3.8-flash"]
 
 MIT_LICENSE_TEMPLATE = """MIT License
 
